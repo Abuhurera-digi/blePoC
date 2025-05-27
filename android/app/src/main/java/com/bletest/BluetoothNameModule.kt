@@ -97,4 +97,45 @@ fun getBluetoothIdentity(promise: Promise) {
             }
         }, 15000) // 15 seconds
     }
+
+
+  @ReactMethod
+fun setBluetoothNameForRole(role: String, promise: Promise) {
+    try {
+        val adapter = BluetoothAdapter.getDefaultAdapter()
+        if (adapter == null || !adapter.isEnabled) {
+            promise.reject("BLUETOOTH_UNAVAILABLE", "Bluetooth is not available or enabled")
+            return
+        }
+
+        if (role == "broadcaster") {
+            val prefs = reactApplicationContext.getSharedPreferences("BluetoothPrefs", Context.MODE_PRIVATE)
+
+            val currentName = adapter.name ?: "AndroidDevice"
+
+            // Remove all ARES_ prefixes if repeated
+            val cleanedName = currentName.replace(Regex("^(ARES_)+"), "")
+            val finalName = "ARES_$cleanedName"
+
+            // Only update if name isn't already set properly
+            if (currentName != finalName) {
+                adapter.name = finalName
+                prefs.edit().putBoolean("isNameSet", true).apply()
+                Log.d("BluetoothName", "Set Bluetooth name to: $finalName")
+                promise.resolve(finalName)
+            } else {
+                Log.d("BluetoothName", "Bluetooth name already set correctly.")
+                promise.resolve("Name already set: $finalName")
+            }
+        } else {
+            promise.resolve("No change. Role is not broadcaster.")
+        }
+    } catch (e: Exception) {
+        promise.reject("SET_NAME_ERROR", e.message)
+    }
+}
+
+
+
+
 }

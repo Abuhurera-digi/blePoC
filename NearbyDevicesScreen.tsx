@@ -13,6 +13,7 @@ import {
 import { NativeModules } from 'react-native';
 
 const { BluetoothScanner } = NativeModules;
+const { BluetoothName } = NativeModules;
 
 interface Device {
     name: string;
@@ -97,6 +98,32 @@ const NearbyDevicesScreen = () => {
             )}
         </TouchableOpacity>
     );
+
+    useEffect(() => {
+        const setupBroadcaster = async () => {
+            try {
+                const info = await BluetoothName.getBluetoothIdentity();
+                const deviceId = info.deviceId;
+    
+                // The ID of the only device that should act as the broadcaster
+                 const broadcasterId = '7f39d982f04d1193'; // replace this with actual ID Preeti's Device Id
+                // const broadcasterId = '8ddeebd2bcb19a1e';
+                
+    
+                if (deviceId === broadcasterId) {
+                    const result = await BluetoothName.setBluetoothNameForRole('broadcaster');
+                    console.log('Bluetooth role setup result:', result);
+                } else {
+                    console.log('This device is not the broadcaster.');
+                }
+            } catch (error) {
+                console.error('Error while setting Bluetooth role:', error);
+            }
+        };
+    
+        setupBroadcaster();
+    }, []);
+    
 
     return (
         <View style={styles.container}>
