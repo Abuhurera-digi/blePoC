@@ -22,6 +22,7 @@ interface Device {
 const NearbyDevicesScreen = () => {
     const [devices, setDevices] = useState<Device[]>([]);
     const [loading, setLoading] = useState(false);
+    const [pairingAddress, setPairingAddress] = useState<string | null>(null);
 
     const requestBluetoothPermissions = async () => {
         if (Platform.OS === 'android') {
@@ -47,7 +48,6 @@ const NearbyDevicesScreen = () => {
             await requestBluetoothPermissions();
             const result = await BluetoothScanner.scanDevices(10000);
 
-            // Filter out unknown devices
             const filtered = result.filter(
                 (device: Device) =>
                     device.name && !device.name.toLowerCase().startsWith('unknown device')
@@ -63,28 +63,38 @@ const NearbyDevicesScreen = () => {
         }
     };
 
-
     useEffect(() => {
         scanForDevices();
     }, []);
 
-    const handleDevicePress = (device: Device) => {
-        Alert.alert('Device Selected', `${device.name}\n${device.address}`);
-        // TODO: Pairing logic can be added here
+    const handleDevicePress = async (device: Device) => {
+        setPairingAddress(device.address);
+        try {
+            const result = await BluetoothScanner.pairDevice(device.address);
+            Alert.alert('Paired Successfully', result);
+        } catch (error: any) {
+            console.error('Pairing failed:', error);
+            Alert.alert('Pairing Error', error.message || 'Failed to pair with device');
+        } finally {
+            setPairingAddress(null);
+        }
     };
 
     const renderItem = ({ item }: { item: Device }) => (
         <TouchableOpacity
             style={styles.deviceItem}
             onPress={() => handleDevicePress(item)}
+            disabled={pairingAddress === item.address}
         >
             <Text style={styles.deviceName}>
                 {item.name === "Unknown Device"
                     ? `Device (${item.address.slice(-5)})`
                     : item.name}
             </Text>
-
             <Text style={styles.deviceAddress}>{item.address}</Text>
+            {pairingAddress === item.address && (
+                <ActivityIndicator size="small" color="#1e40af" style={{ marginTop: 4 }} />
+            )}
         </TouchableOpacity>
     );
 
