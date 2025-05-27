@@ -1,0 +1,162 @@
+import React, { useEffect, useState } from 'react';
+import {
+    View,
+    Text,
+    FlatList,
+    TouchableOpacity,
+    ActivityIndicator,
+    StyleSheet,
+    Alert,
+    PermissionsAndroid,
+    Platform,
+} from 'react-native';
+import { NativeModules } from 'react-native';
+
+const { BluetoothScanner } = NativeModules;
+
+interface Device {
+    name: string;
+    address: string;
+}
+
+const NearbyDevicesScreen = () => {
+    const [devices, setDevices] = useState<Device[]>([]);
+    const [loading, setLoading] = useState(false);
+
+    const requestBluetoothPermissions = async () => {
+        if (Platform.OS === 'android') {
+            const granted = await PermissionsAndroid.requestMultiple([
+                PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+                PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+                PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+            ]);
+
+            const allGranted = Object.values(granted).every(
+                status => status === PermissionsAndroid.RESULTS.GRANTED
+            );
+
+            if (!allGranted) {
+                throw new Error('Bluetooth permissions not granted');
+            }
+        }
+    };
+
+    const scanForDevices = async () => {
+        setLoading(true);
+        try {
+            await requestBluetoothPermissions();
+            const result = await BluetoothScanner.scanDevices(10000);
+
+            // Filter out unknown devices
+            const filtered = result.filter(
+                (device: Device) =>
+                    device.name && !device.name.toLowerCase().startsWith('unknown device')
+            );
+
+            console.log("Filtered devices:", filtered);
+            setDevices(filtered);
+        } catch (error) {
+            console.error('Scan failed:', error);
+            Alert.alert('Scan Error', error.message || 'Bluetooth scan failed');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+
+    useEffect(() => {
+        scanForDevices();
+    }, []);
+
+    const handleDevicePress = (device: Device) => {
+        Alert.alert('Device Selected', `${device.name}\n${device.address}`);
+        // TODO: Pairing logic can be added here
+    };
+
+    const renderItem = ({ item }: { item: Device }) => (
+        <TouchableOpacity
+            style={styles.deviceItem}
+            onPress={() => handleDevicePress(item)}
+        >
+            <Text style={styles.deviceName}>
+                {item.name === "Unknown Device"
+                    ? `Device (${item.address.slice(-5)})`
+                    : item.name}
+            </Text>
+
+            <Text style={styles.deviceAddress}>{item.address}</Text>
+        </TouchableOpacity>
+    );
+
+    return (
+        <View style={styles.container}>
+            <Text style={styles.title}>Nearby Bluetooth Devices</Text>
+            {loading ? (
+                <ActivityIndicator size="large" color="#1e40af" />
+            ) : (
+                <FlatList
+                    data={devices}
+                    keyExtractor={(item) => item.address}
+                    renderItem={renderItem}
+                    contentContainerStyle={styles.listContainer}
+                    ListEmptyComponent={
+                        <Text style={styles.emptyText}>No devices found</Text>
+                    }
+                />
+            )}
+            <TouchableOpacity style={styles.rescanButton} onPress={scanForDevices}>
+                <Text style={styles.buttonText}>Rescan</Text>
+            </TouchableOpacity>
+        </View>
+    );
+};
+
+export default NearbyDevicesScreen;
+
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        padding: 16,
+        backgroundColor: '#f3f4f6',
+    },
+    title: {
+        fontSize: 20,
+        fontWeight: '600',
+        marginBottom: 16,
+    },
+    listContainer: {
+        paddingBottom: 20,
+    },
+    deviceItem: {
+        padding: 12,
+        marginBottom: 10,
+        backgroundColor: '#fff',
+        borderRadius: 10,
+        elevation: 2,
+    },
+    deviceName: {
+        fontSize: 16,
+        fontWeight: '500',
+    },
+    deviceAddress: {
+        fontSize: 14,
+        color: '#555',
+        marginTop: 4,
+    },
+    emptyText: {
+        textAlign: 'center',
+        color: '#888',
+        marginTop: 30,
+    },
+    rescanButton: {
+        backgroundColor: '#1e40af',
+        padding: 12,
+        borderRadius: 8,
+        marginTop: 20,
+        alignItems: 'center',
+    },
+    buttonText: {
+        color: '#fff',
+        fontSize: 16,
+    },
+});

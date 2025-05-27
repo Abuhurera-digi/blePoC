@@ -1,130 +1,176 @@
-/**
- * Sample React Native App
- * https://github.com/facebook/react-native
- *
- * @format
- */
-
-import React from 'react';
-import type {PropsWithChildren} from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  ScrollView,
-  StatusBar,
+  PermissionsAndroid,
+  Platform,
+  SafeAreaView,
   StyleSheet,
   Text,
-  useColorScheme,
-  View,
+  TouchableOpacity,
 } from 'react-native';
+import { NativeModules } from 'react-native';
 
-import {
-  Colors,
-  DebugInstructions,
-  Header,
-  LearnMoreLinks,
-  ReloadInstructions,
-} from 'react-native/Libraries/NewAppScreen';
+import QRCode from 'react-native-qrcode-svg';
+import DeviceInfo from 'react-native-device-info';
+import RNRsa from 'react-native-rsa-native';
+import { NavigationContainer } from '@react-navigation/native';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import ScannerScreen from './ScannerScreen';
+import { enableScreens } from 'react-native-screens';
+import RNBluetoothClassic from 'react-native-bluetooth-classic';
+import Bluetooth from './Bluetooth';
+import NearbyDevicesScreen from './NearbyDevicesScreen';
 
-type SectionProps = PropsWithChildren<{
-  title: string;
-}>;
+const Stack = createNativeStackNavigator();
+enableScreens(); // Add this line at the top
 
-function Section({children, title}: SectionProps): React.JSX.Element {
-  const isDarkMode = useColorScheme() === 'dark';
-  return (
-    <View style={styles.sectionContainer}>
-      <Text
-        style={[
-          styles.sectionTitle,
-          {
-            color: isDarkMode ? Colors.white : Colors.black,
-          },
-        ]}>
-        {title}
-      </Text>
-      <Text
-        style={[
-          styles.sectionDescription,
-          {
-            color: isDarkMode ? Colors.light : Colors.dark,
-          },
-        ]}>
-        {children}
-      </Text>
-    </View>
-  );
-}
+const HomeScreen = ({ navigation }: any) => {
+  const [qrPayload, setQrPayload] = useState<string | null>(null);
 
-function App(): React.JSX.Element {
-  const isDarkMode = useColorScheme() === 'dark';
+  useEffect(() => {
+    const requestPermissionsAndInit = async () => {
+      if (Platform.OS === 'android') {
+        const granted = await PermissionsAndroid.requestMultiple([
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+        ]);
 
-  const backgroundStyle = {
-    backgroundColor: isDarkMode ? Colors.darker : Colors.lighter,
+        const allGranted = Object.values(granted).every(
+          status => status === PermissionsAndroid.RESULTS.GRANTED,
+        );
+
+        if (!allGranted) {
+          console.warn('Bluetooth permissions not granted');
+          return;
+        }
+      }
+
+      await generateQrPayload();
+      await getAddress(); // ✅ Only call this after permissions are granted
+    };
+
+    requestPermissionsAndInit();
+  }, []);
+
+
+  const generateQrPayload = async () => {
+    try {
+      const deviceId = await DeviceInfo.getUniqueId();
+      const keys = await RNRsa.generateKeys(2048);
+      const signature = await RNRsa.sign(deviceId, keys.private);
+      const bluetoothName = `MyDevice_${deviceId}`;
+
+      const payload = {
+        deviceId,
+        publicKey: keys.public,
+        signature,
+        bluetoothName,
+      };
+
+      setQrPayload(JSON.stringify(payload));
+    } catch (err) {
+      console.warn('QR generation failed:', err);
+    }
   };
 
-  /*
-   * To keep the template simple and small we're adding padding to prevent view
-   * from rendering under the System UI.
-   * For bigger apps the recommendation is to use `react-native-safe-area-context`:
-   * https://github.com/AppAndFlow/react-native-safe-area-context
-   *
-   * You can read more about it here:
-   * https://github.com/react-native-community/discussions-and-proposals/discussions/827
-   */
-  const safePadding = '5%';
+  const [isDiscovering, setIsDiscovering] = useState(false);
+
+
+  const { BluetoothName } = NativeModules;
+  const getAddress = async () => {
+    try {
+      const info = await BluetoothName.getBluetoothIdentity();
+      console.log('Bluetooth Name:', info.name);
+      console.log('Device ID (Android):', info.deviceId);
+    } catch (e) {
+      console.error('Error getting Bluetooth info:', e);
+    }
+  };
+
+
+  useEffect(() => {
+    getAddress();
+  }, []);
 
   return (
-    <View style={backgroundStyle}>
-      <StatusBar
-        barStyle={isDarkMode ? 'light-content' : 'dark-content'}
-        backgroundColor={backgroundStyle.backgroundColor}
-      />
-      <ScrollView
-        style={backgroundStyle}>
-        <View style={{paddingRight: safePadding}}>
-          <Header/>
-        </View>
-        <View
-          style={{
-            backgroundColor: isDarkMode ? Colors.black : Colors.white,
-            paddingHorizontal: safePadding,
-            paddingBottom: safePadding,
-          }}>
-          <Section title="Step One">
-            Edit <Text style={styles.highlight}>App.tsx</Text> to change this
-            screen and then come back to see your edits.
-          </Section>
-          <Section title="See Your Changes">
-            <ReloadInstructions />
-          </Section>
-          <Section title="Debug">
-            <DebugInstructions />
-          </Section>
-          <Section title="Learn More">
-            Read the docs to discover what to do next:
-          </Section>
-          <LearnMoreLinks />
-        </View>
-      </ScrollView>
-    </View>
+    <SafeAreaView style={styles.container}>
+      <Text style={styles.title}>Device Identity QR</Text>
+      {qrPayload ? (
+        <>
+          <QRCode value={qrPayload} size={250} />
+          <Text style={styles.address}>QR Ready</Text>
+        </>
+      ) : (
+        <Text style={styles.loadingText}>Generating secure QR...</Text>
+      )}
+      <TouchableOpacity
+        style={styles.scanButton}
+        onPress={() => navigation.navigate('Scanner')}
+      >
+        <Text style={styles.scanButtonText}>Scan Device QR</Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={styles.scanButton}
+        onPress={() => navigation.navigate('ble')}
+      >
+        <Text style={styles.scanButtonText}> Device</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={styles.scanButton}
+        onPress={() => navigation.navigate('NearbyDevices')}
+      >
+        <Text style={styles.scanButtonText}>Scan Nearby Devices</Text>
+      </TouchableOpacity>
+
+    </SafeAreaView>
   );
-}
+};
+
+const App = () => (
+  <NavigationContainer>
+    <Stack.Navigator>
+      <Stack.Screen name="Home" component={HomeScreen} />
+      <Stack.Screen name="Scanner" component={ScannerScreen} />
+      <Stack.Screen name="ble" component={Bluetooth} />
+      <Stack.Screen name="NearbyDevices" component={NearbyDevicesScreen} />
+    </Stack.Navigator>
+  </NavigationContainer>
+);
 
 const styles = StyleSheet.create({
-  sectionContainer: {
-    marginTop: 32,
-    paddingHorizontal: 24,
+  container: {
+    flex: 1,
+    backgroundColor: '#f3f4f6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
   },
-  sectionTitle: {
-    fontSize: 24,
+  title: {
+    fontSize: 22,
     fontWeight: '600',
+    marginBottom: 20,
   },
-  sectionDescription: {
-    marginTop: 8,
+  address: {
     fontSize: 18,
-    fontWeight: '400',
+    marginTop: 12,
+    fontWeight: '500',
+    color: '#333',
   },
-  highlight: {
-    fontWeight: '700',
+  loadingText: {
+    fontSize: 16,
+    color: 'gray',
+  },
+  scanButton: {
+    marginTop: 30,
+    backgroundColor: '#1e40af',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  scanButtonText: {
+    color: '#fff',
+    fontSize: 16,
   },
 });
 
