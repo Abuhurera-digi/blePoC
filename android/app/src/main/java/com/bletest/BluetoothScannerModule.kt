@@ -8,6 +8,11 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import com.facebook.react.bridge.*
+import java.util.UUID
+import android.bluetooth.BluetoothServerSocket
+import com.facebook.react.modules.core.DeviceEventManagerModule
+
+
 
 class BluetoothScannerModule(private val reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
@@ -20,6 +25,9 @@ class BluetoothScannerModule(private val reactContext: ReactApplicationContext) 
     private var discoveryReceiver: BroadcastReceiver? = null
     private var bondReceiver: BroadcastReceiver? = null
     private var currentPairPromise: Promise? = null
+    private var serverThread: Thread? = null
+private var isServerRunning = false
+
 
     override fun getName(): String = "BluetoothScanner"
 
@@ -217,4 +225,166 @@ class BluetoothScannerModule(private val reactContext: ReactApplicationContext) 
             promise.reject("PAIR_ERROR", e.message)
         }
     }
+@ReactMethod
+fun sendDataToDevice(address: String, message: String, promise: Promise) {
+    try {
+        val device = bluetoothAdapter.getRemoteDevice(address)
+        val socket = device.createRfcommSocketToServiceRecord(UUID.fromString("00001101-0000-1000-8000-00805F9B34FB"))
+        bluetoothAdapter.cancelDiscovery()
+
+        // Retry logic with timeout
+        var retryCount = 0
+        val maxRetries = 3
+        var connected = false
+        var lastException: Exception? = null
+        val timeout = 10000L // 10 seconds
+
+        while (retryCount < maxRetries && !connected) {
+            val connectThread = Thread {
+                try {
+                    socket.connect()
+                } catch (e: Exception) {
+                    throw e
+                }
+            }
+            connectThread.start()
+
+            // Wait for connection with timeout
+            val startTime = System.currentTimeMillis()
+            while (connectThread.isAlive) {
+                if (System.currentTimeMillis() - startTime > timeout) {
+                    connectThread.interrupt()
+                    socket.close()
+                    throw Exception("Connection timed out after ${timeout}ms")
+                }
+                Thread.sleep(100)
+            }
+
+            try {
+                Log.d("BluetoothScanner", "Attempting to connect to $address (Attempt ${retryCount + 1})")
+                connectThread.join() // Wait for thread to complete
+                connected = true
+                Log.d("BluetoothScanner", "Connected to $address")
+            } catch (e: Exception) {
+                lastException = e
+                retryCount++
+                Log.w("BluetoothScanner", "Connection attempt $retryCount failed: ${e.message}")
+                if (retryCount < maxRetries) {
+                    Thread.sleep(1000)
+                }
+            }
+        }
+
+        if (!connected) {
+            throw lastException ?: Exception("Failed to connect after $maxRetries attempts")
+        }
+
+        try {
+            val output = socket.outputStream
+            output.write(message.toByteArray())
+            output.flush()
+            Log.d("BluetoothScanner", "Data sent to $address: $message")
+            Thread.sleep(1000) // Delay to ensure receiver processes data
+        } finally {
+            try {
+                socket.close()
+                Log.d("BluetoothScanner", "Sender socket closed for $address")
+            } catch (e: Exception) {
+                Log.w("BluetoothScanner", "Error closing sender socket: ${e.message}")
+            }
+        }
+        promise.resolve("Message sent to $address")
+    } catch (e: Exception) {
+        Log.e("BluetoothScanner", "Send failed: ${e.message}")
+        promise.reject("SEND_ERROR", e.message)
+    }
+}
+@ReactMethod
+fun startBluetoothServer(promise: Promise) {
+    if (isServerRunning) {
+        promise.reject("SERVER_RUNNING", "Server is already running")
+        return
+    }
+
+    stopCurrentScan()
+
+    serverThread = Thread {
+        var serverSocket: BluetoothServerSocket? = null
+        try {
+            isServerRunning = true
+            serverSocket = bluetoothAdapter
+                .listenUsingRfcommWithServiceRecord("BluetoothServer", UUID.fromString("00001101-0000-1000-8000-00805F9B34FB"))
+
+            Log.d("BluetoothScanner", "Server socket listening...")
+
+            while (isServerRunning) {
+                try {
+                    serverSocket?.accept(10000)?.let { socket ->
+                        Log.d("BluetoothScanner", "Client connected: ${socket.remoteDevice.address}")
+                        
+                        Thread {
+                            var input: java.io.InputStream? = null
+                            try {
+                                input = socket.inputStream
+                                val buffer = ByteArray(1024)
+                                val bytesRead = input.read(buffer)
+                                if (bytesRead == -1) {
+                                    Log.w("BluetoothScanner", "Client disconnected or end of stream reached")
+                                    return@Thread
+                                }
+                                val receivedMessage = String(buffer, 0, bytesRead)
+                                Log.d("BluetoothScanner", "Received: $receivedMessage")
+
+                                // Send event to JS
+                                val params = Arguments.createMap().apply {
+                                    putString("message", receivedMessage)
+                                    putString("sender", socket.remoteDevice.address)
+                                }
+                                reactContext
+                                    .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                                    .emit("BluetoothDataReceived", params)
+                            } catch (e: Exception) {
+                                Log.e("BluetoothScanner", "Error handling client connection: ${e.message}")
+                            } finally {
+                                try {
+                                    socket.close()
+                                    Log.d("BluetoothScanner", "Client socket closed")
+                                } catch (e: Exception) {
+                                    Log.w("BluetoothScanner", "Error closing client socket: ${e.message}")
+                                }
+                            }
+                        }.start()
+                    } ?: Log.w("BluetoothScanner", "Accept timed out, continuing to listen")
+                } catch (e: Exception) {
+                    Log.e("BluetoothScanner", "Error accepting connection: ${e.message}")
+                    if (!isServerRunning) break
+                }
+            }
+            promise.resolve("Server started and listening")
+        } catch (e: Exception) {
+            Log.e("BluetoothScanner", "Server error: ${e.message}")
+            promise.reject("SERVER_ERROR", e.message)
+        } finally {
+            try {
+                serverSocket?.close()
+                Log.d("BluetoothScanner", "Server socket closed")
+            } catch (e: Exception) {
+                Log.w("BluetoothScanner", "Error closing server socket: ${e.message}")
+            }
+            isServerRunning = false
+        }
+    }
+    serverThread?.start()
+}
+
+@ReactMethod
+fun stopBluetoothServer(promise: Promise) {
+    isServerRunning = false
+    serverThread?.interrupt()
+    promise.resolve("Server stopped")
+}
+
+
+
+
 }
