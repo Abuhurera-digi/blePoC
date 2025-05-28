@@ -8,7 +8,6 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import { NativeModules } from 'react-native';
-
 import QRCode from 'react-native-qrcode-svg';
 import DeviceInfo from 'react-native-device-info';
 import RNRsa from 'react-native-rsa-native';
@@ -16,9 +15,10 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import ScannerScreen from './ScannerScreen';
 import { enableScreens } from 'react-native-screens';
-import RNBluetoothClassic from 'react-native-bluetooth-classic';
 import Bluetooth from './Bluetooth';
 import NearbyDevicesScreen from './NearbyDevicesScreen';
+import ScreenOne from './src/screen/ScreenOne';
+import ScreenTwo from './src/screen/ScreenTwo';
 
 const Stack = createNativeStackNavigator();
 enableScreens(); // Add this line at the top
@@ -122,6 +122,12 @@ const HomeScreen = ({ navigation }: any) => {
       >
         <Text style={styles.scanButtonText}>Scan Nearby Devices</Text>
       </TouchableOpacity>
+      <TouchableOpacity
+        style={styles.scanButton}
+        onPress={() => navigation.navigate('ScreenOne')}
+      >
+        <Text style={styles.scanButtonText}>{"Next Page"}</Text>
+      </TouchableOpacity>
 
     </SafeAreaView>
   );
@@ -134,6 +140,8 @@ const App = () => (
       <Stack.Screen name="Scanner" component={ScannerScreen} />
       <Stack.Screen name="ble" component={Bluetooth} />
       <Stack.Screen name="NearbyDevices" component={NearbyDevicesScreen} />
+      <Stack.Screen name="ScreenOne" component={ScreenOne} />
+      <Stack.Screen name="ScreenTwo" component={ScreenTwo} />
     </Stack.Navigator>
   </NavigationContainer>
 );
