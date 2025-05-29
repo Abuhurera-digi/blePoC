@@ -1,3 +1,4 @@
+// NearbyDevicesScreen.tsx
 import React, { useEffect, useState } from 'react';
 import {
     View,
@@ -6,12 +7,11 @@ import {
     TouchableOpacity,
     ActivityIndicator,
     StyleSheet,
-    Alert,
     PermissionsAndroid,
     Platform,
-    NativeEventEmitter,
     NativeModules,
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 
 const { BluetoothScanner, BluetoothName } = NativeModules;
 
@@ -20,14 +20,14 @@ interface Device {
     address: string;
 }
 
-const RECEIVER_ID = '24701e830cd4c026';
-const BROADCASTER_ID = '8ddeebd2bcb19a1e'; // Change if needed
+const BROADCASTER_ID = '8ddeebd2bcb19a1e';
 
 const NearbyDevicesScreen = () => {
     const [devices, setDevices] = useState<Device[]>([]);
     const [loading, setLoading] = useState(false);
     const [pairingAddress, setPairingAddress] = useState<string | null>(null);
     const [serverStatus, setServerStatus] = useState<string | null>(null);
+    const navigation = useNavigation();
 
     const requestBluetoothPermissions = async () => {
         if (Platform.OS === 'android') {
@@ -36,17 +36,13 @@ const NearbyDevicesScreen = () => {
                 PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
                 PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
             ];
-
-            if (Platform.Version >= 31) { // Android 12 and above
+            if (Platform.Version >= 31) {
                 permissions.push(PermissionsAndroid.PERMISSIONS.BLUETOOTH_ADVERTISE);
             }
-
             const granted = await PermissionsAndroid.requestMultiple(permissions);
-
             const allGranted = Object.values(granted).every(
                 status => status === PermissionsAndroid.RESULTS.GRANTED
             );
-
             if (!allGranted) {
                 throw new Error('Bluetooth permissions not granted');
             }
@@ -58,101 +54,74 @@ const NearbyDevicesScreen = () => {
         try {
             await requestBluetoothPermissions();
             const result = await BluetoothScanner.scanDevices(10000);
-
             const filtered = result.filter(
                 (device: Device) =>
                     device.name && !device.name.toLowerCase().startsWith('unknown device')
             );
-
             setDevices(filtered);
         } catch (error: any) {
-            console.error('Scan failed:', error);
-            Alert.alert('Scan Error', error.message || 'Bluetooth scan failed');
+            setServerStatus(`Scan Error: ${error.message || 'Bluetooth scan failed'}`);
         } finally {
             setLoading(false);
         }
     };
 
     useEffect(() => {
-        scanForDevices();
-    }, []);
-
-    useEffect(() => {
         const assignBluetoothRole = async () => {
             try {
                 const { deviceId } = await BluetoothName.getBluetoothIdentity();
-                console.log("Device ID:", deviceId);
-                if (deviceId === RECEIVER_ID) {
-                    console.log("Acting as Receiver");
-                    setServerStatus('Listening...');
-                    const result = await BluetoothScanner.startBluetoothServer();
-                    setServerStatus(result);
-                    // Skip scanning for receiver
-                } else if (deviceId === BROADCASTER_ID) {
-                    console.log("Acting as Broadcaster");
-                    const result = await BluetoothName.setBluetoothNameForRole('broadcaster');
-                    console.log('Bluetooth name set result:', result);
-                    await scanForDevices(); // Only broadcaster scans
+                if (deviceId === BROADCASTER_ID) {
+                    await BluetoothName.setBluetoothNameForRole('broadcaster');
+                    setIsBroadcaster(true);
                 } else {
-                    console.log("This device has no assigned role.");
-                    await scanForDevices();
+                    navigation.navigate('ReceivingDataFromSender' as never);
                 }
             } catch (err: any) {
-                console.error('Role assignment failed:', err);
                 setServerStatus(`Error: ${err.message}`);
             }
         };
-
         assignBluetoothRole();
     }, []);
 
-    // Handle data received from Kotlin
+    const [isBroadcaster, setIsBroadcaster] = useState(false);
+
     useEffect(() => {
-        const eventEmitter = new NativeEventEmitter(BluetoothScanner);
-        const subscription = eventEmitter.addListener("BluetoothDataReceived", (event) => {
-            const message = event.message || "No message received";
+        if (isBroadcaster) {
+            scanForDevices();
+        }
+    }, [isBroadcaster]);
 
-            Alert.alert(
-                "Incoming Bluetooth Message",
-                message,
-                [
-                    { text: "Decline", onPress: () => console.log("Declined") },
-                    { text: "Accept", onPress: () => console.log("Accepted") }
-                ]
-            );
-        });
-
-        return () => {
-            subscription.remove();
-        };
-    }, []);
 
     const handleDevicePress = async (device: Device) => {
         setPairingAddress(device.address);
         try {
             const result = await BluetoothScanner.pairDevice(device.address);
-            Alert.alert('Paired Successfully', result);
+            setServerStatus(`Paired Successfully: ${result}`);
         } catch (error: any) {
-            console.error('Pairing failed:', error);
-            Alert.alert('Pairing Error', error.message || 'Failed to pair with device');
+            setServerStatus(`Pairing Error: ${error.message}`);
         } finally {
             setPairingAddress(null);
         }
     };
 
-
     const handleSendData = async (device: Device) => {
         try {
-            const result = await BluetoothScanner.sendDataToDevice(device.address, "Hello from React Native!");
-            console.log("result", result);
-            Alert.alert('Data Sent', result);
+            const payload = {
+                amount: 1200,
+                id: "212121",
+                status: "true",
+            };
+            const result = await BluetoothScanner.sendDataToDevice(
+                device.address,
+                JSON.stringify(payload)
+            );
+            setServerStatus(`Data Sent: ${result}`);
         } catch (error: any) {
-            console.error('Send failed:', error);
-            Alert.alert('Send Error', error.message || 'Failed to send data');
+            setServerStatus(`Send Error: ${error.message}`);
         }
     };
 
-    const renderItem = ({ item }: { item: Device }) => (
+    const renderDeviceItem = ({ item }: { item: Device }) => (
         <View style={styles.deviceItem}>
             <TouchableOpacity
                 onPress={() => handleDevicePress(item)}
@@ -188,11 +157,10 @@ const NearbyDevicesScreen = () => {
                 <FlatList
                     data={devices}
                     keyExtractor={(item) => item.address}
-                    renderItem={renderItem}
+                    renderItem={renderDeviceItem}
                     contentContainerStyle={styles.listContainer}
-                    ListEmptyComponent={
-                        <Text style={styles.emptyText}>No devices found</Text>
-                    }
+                    ListEmptyComponent={<Text style={styles.emptyText}>No devices found</Text>}
+                    ListHeaderComponent={<Text style={styles.subTitle}>Devices</Text>}
                 />
             )}
             <TouchableOpacity style={styles.rescanButton} onPress={scanForDevices}>
@@ -205,61 +173,16 @@ const NearbyDevicesScreen = () => {
 export default NearbyDevicesScreen;
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        padding: 16,
-        backgroundColor: '#f3f4f6',
-    },
-    title: {
-        fontSize: 20,
-        fontWeight: '600',
-        marginBottom: 12,
-    },
-    serverStatus: {
-        fontSize: 14,
-        color: '#1e40af',
-        marginBottom: 8,
-    },
-    listContainer: {
-        paddingBottom: 20,
-    },
-    deviceItem: {
-        padding: 12,
-        marginBottom: 10,
-        backgroundColor: '#fff',
-        borderRadius: 10,
-        elevation: 2,
-    },
-    deviceName: {
-        fontSize: 16,
-        fontWeight: '500',
-    },
-    deviceAddress: {
-        fontSize: 14,
-        color: '#555',
-        marginTop: 4,
-    },
-    emptyText: {
-        textAlign: 'center',
-        color: '#888',
-        marginTop: 30,
-    },
-    rescanButton: {
-        backgroundColor: '#1e40af',
-        padding: 12,
-        borderRadius: 8,
-        marginTop: 20,
-        alignItems: 'center',
-    },
-    buttonText: {
-        color: '#fff',
-        fontSize: 16,
-    },
-    sendButton: {
-        backgroundColor: '#10b981',
-        padding: 10,
-        borderRadius: 8,
-        marginTop: 10,
-        alignItems: 'center',
-    },
+    container: { flex: 1, padding: 16, backgroundColor: '#f3f4f6' },
+    title: { fontSize: 20, fontWeight: '600', marginBottom: 12 },
+    subTitle: { fontSize: 18, fontWeight: '500', marginVertical: 8 },
+    serverStatus: { fontSize: 14, color: '#1e40af', marginBottom: 8 },
+    listContainer: { paddingBottom: 20 },
+    deviceItem: { padding: 12, marginBottom: 10, backgroundColor: '#fff', borderRadius: 10, elevation: 2 },
+    deviceName: { fontSize: 16, fontWeight: '500' },
+    deviceAddress: { fontSize: 14, color: '#555', marginTop: 4 },
+    sendButton: { backgroundColor: '#10b981', padding: 10, borderRadius: 8, marginTop: 10, alignItems: 'center' },
+    rescanButton: { backgroundColor: '#1e40af', padding: 12, borderRadius: 8, marginTop: 20, alignItems: 'center' },
+    buttonText: { color: '#fff', fontSize: 16 },
+    emptyText: { textAlign: 'center', color: '#888', marginTop: 10 },
 });

@@ -19,6 +19,7 @@ import { enableScreens } from 'react-native-screens';
 import RNBluetoothClassic from 'react-native-bluetooth-classic';
 import Bluetooth from './Bluetooth';
 import NearbyDevicesScreen from './NearbyDevicesScreen';
+import RecevingDataFromSender from './RecevingDataFromSender';
 
 const Stack = createNativeStackNavigator();
 enableScreens(); // Add this line at the top
@@ -123,6 +124,13 @@ const HomeScreen = ({ navigation }: any) => {
         <Text style={styles.scanButtonText}>Scan Nearby Devices</Text>
       </TouchableOpacity>
 
+      <TouchableOpacity
+        style={styles.scanButton}
+        onPress={() => navigation.navigate('reciveData')}
+      >
+        <Text style={styles.scanButtonText}>RecevingDataFromSender</Text>
+      </TouchableOpacity>
+
     </SafeAreaView>
   );
 };
@@ -134,6 +142,7 @@ const App = () => (
       <Stack.Screen name="Scanner" component={ScannerScreen} />
       <Stack.Screen name="ble" component={Bluetooth} />
       <Stack.Screen name="NearbyDevices" component={NearbyDevicesScreen} />
+      <Stack.Screen name='reciveData' component={RecevingDataFromSender} />
     </Stack.Navigator>
   </NavigationContainer>
 );
