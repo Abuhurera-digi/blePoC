@@ -168,53 +168,67 @@ class BluetoothScannerModule(private val reactContext: ReactApplicationContext) 
         return null
     }
 
-    @ReactMethod
-    fun pairDevice(address: String, promise: Promise) {
-        try {
-            val device = bluetoothAdapter.getRemoteDevice(address)
+   @ReactMethod
+fun pairDevice(address: String, promise: Promise) {
+    val device = bluetoothAdapter?.getRemoteDevice(address)
+    if (device == null) {
+        promise.reject("INVALID_DEVICE", "Cannot find device with address: $address")
+        return
+    }
 
-            if (device.bondState == BluetoothDevice.BOND_BONDED) {
-                promise.resolve("Already paired with ${device.name ?: address}")
-                return
-            }
+    if (device.bondState == BluetoothDevice.BOND_BONDED) {
+        promise.resolve("Device already paired")
+        return
+    }
 
-            currentPairPromise = promise
+    currentPairPromise = promise
 
-            bondReceiver = object : BroadcastReceiver() {
-                override fun onReceive(context: Context?, intent: Intent?) {
-                    val action = intent?.action
-                    if (BluetoothDevice.ACTION_BOND_STATE_CHANGED == action) {
-                        val bondedDevice =
-                            intent.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)
-                        val bondState =
-                            intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.ERROR)
+    bondReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val action = intent?.action
+            val bondedDevice =
+                intent?.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)
 
-                        if (bondedDevice?.address == address) {
-                            if (bondState == BluetoothDevice.BOND_BONDED) {
-                                currentPairPromise?.resolve("Paired successfully with ${bondedDevice.name ?: address}")
-                            } else if (bondState == BluetoothDevice.BOND_NONE) {
-                                currentPairPromise?.reject("PAIR_FAILED", "Pairing failed or cancelled")
-                            }
-                            currentPairPromise = null
-                            try {
-                                reactContext.unregisterReceiver(bondReceiver)
-                            } catch (e: Exception) {
-                                Log.w("BluetoothScanner", "Failed to unregister bond receiver", e)
-                            }
-                        }
-                    }
+            if (action == BluetoothDevice.ACTION_BOND_STATE_CHANGED && bondedDevice?.address == address) {
+                val bondState = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, -1)
+                val prevBondState = intent.getIntExtra(BluetoothDevice.EXTRA_PREVIOUS_BOND_STATE, -1)
+
+                if (bondState == BluetoothDevice.BOND_BONDED && prevBondState == BluetoothDevice.BOND_BONDING) {
+                    Log.d("BluetoothScanner", "Pairing successful")
+                    currentPairPromise?.resolve("Pairing successful with $address")
+                    cleanupBondReceiver()
+                } else if (bondState == BluetoothDevice.BOND_NONE && prevBondState == BluetoothDevice.BOND_BONDING) {
+                    Log.e("BluetoothScanner", "Pairing failed")
+                    currentPairPromise?.reject("PAIRING_FAILED", "Failed to pair with $address")
+                    cleanupBondReceiver()
                 }
             }
-
-            val filter = IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
-            reactContext.registerReceiver(bondReceiver, filter)
-
-            val method = device.javaClass.getMethod("createBond")
-            method.invoke(device)
-
-        } catch (e: Exception) {
-            Log.e("BluetoothScanner", "Pairing error", e)
-            promise.reject("PAIR_ERROR", e.message)
         }
     }
+
+    val filter = IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
+    reactContext.registerReceiver(bondReceiver, filter)
+
+    try {
+        val method = device.javaClass.getMethod("createBond")
+        method.invoke(device)
+    } catch (e: Exception) {
+        cleanupBondReceiver()
+        promise.reject("PAIRING_ERROR", "Error initiating pairing: ${e.message}")
+    }
+}
+
+private fun cleanupBondReceiver() {
+    try {
+        bondReceiver?.let {
+            reactContext.unregisterReceiver(it)
+            Log.d("BluetoothScanner", "Bond receiver unregistered")
+        }
+    } catch (e: Exception) {
+        Log.w("BluetoothScanner", "Error unregistering bond receiver", e)
+    }
+    bondReceiver = null
+    currentPairPromise = null
+}
+
 }

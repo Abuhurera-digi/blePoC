@@ -14,6 +14,7 @@ import { NativeModules } from 'react-native';
 
 const { BluetoothScanner } = NativeModules;
 const { BluetoothName } = NativeModules;
+const { BluetoothManager } = NativeModules;
 
 interface Device {
     name: string;
@@ -24,7 +25,7 @@ const NearbyDevicesScreen = () => {
     const [devices, setDevices] = useState<Device[]>([]);
     const [loading, setLoading] = useState(false);
     const [pairingAddress, setPairingAddress] = useState<string | null>(null);
-
+console.log("NativeModules..", NativeModules)
     const requestBluetoothPermissions = async () => {
         if (Platform.OS === 'android') {
             const granted = await PermissionsAndroid.requestMultiple([
@@ -42,12 +43,15 @@ const NearbyDevicesScreen = () => {
             }
         }
     };
+console.log("BluetoothManager.......", BluetoothManager);
 
     const scanForDevices = async () => {
         setLoading(true);
         try {
             await requestBluetoothPermissions();
             const result = await BluetoothScanner.scanDevices(10000);
+        //    const result = await BluetoothManager.scanDevices(10000);
+            console.log("ressss", result);
 
             const filtered = result.filter(
                 (device: Device) =>
@@ -56,6 +60,7 @@ const NearbyDevicesScreen = () => {
 
             console.log("Filtered devices:", filtered);
             setDevices(filtered);
+            setLoading(false);
         } catch (error) {
             console.error('Scan failed:', error);
             Alert.alert('Scan Error', error.message || 'Bluetooth scan failed');
@@ -72,15 +77,16 @@ const NearbyDevicesScreen = () => {
         setPairingAddress(device.address);
         try {
             const result = await BluetoothScanner.pairDevice(device.address);
-            Alert.alert('Paired Successfully', result);
+            Alert.alert('Success', result); // Show success message
         } catch (error: any) {
             console.error('Pairing failed:', error);
             Alert.alert('Pairing Error', error.message || 'Failed to pair with device');
         } finally {
             setPairingAddress(null);
+            setLoading(false);
         }
     };
-
+    
     const renderItem = ({ item }: { item: Device }) => (
         <TouchableOpacity
             style={styles.deviceItem}

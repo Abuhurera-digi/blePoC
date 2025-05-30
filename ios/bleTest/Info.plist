@@ -48,5 +48,22 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
+
+
+	<key>NSBluetoothAlwaysUsageDescription</key>
+<string>This app uses Bluetooth to discover nearby devices.</string>
+<key>NSBluetoothPeripheralUsageDescription</key>
+<string>This app uses Bluetooth to broadcast availability.</string>
+<key>UIBackgroundModes</key>
+<array>
+    <string>bluetooth-central</string>
+    <string>bluetooth-peripheral</string>
+</array>
+<key>UISupportedExternalAccessoryProtocols</key>
+<array>
+    <string>com.test.placeholder</string>
+</array>
+
+
 </dict>
 </plist>
