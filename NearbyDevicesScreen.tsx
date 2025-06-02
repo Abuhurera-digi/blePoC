@@ -1,4 +1,3 @@
-// NearbyDevicesScreen.tsx
 import React, { useEffect, useState } from 'react';
 import {
     View,
@@ -10,6 +9,7 @@ import {
     PermissionsAndroid,
     Platform,
     NativeModules,
+    Alert,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 
@@ -18,15 +18,31 @@ const { BluetoothScanner, BluetoothName } = NativeModules;
 interface Device {
     name: string;
     address: string;
+    status?: 'idle' | 'pairing' | 'paired' | 'failed';
 }
 
 const BROADCASTER_ID = '8ddeebd2bcb19a1e';
 
+// Component to display status text with useEffect updating state on status change
+const DeviceStatusText = ({ status }: { status?: Device['status'] }) => {
+    const [statusText, setStatusText] = useState('Available');
+
+    useEffect(() => {
+        if (status === 'idle' || !status) {
+            setStatusText('Available');
+        } else {
+            setStatusText(status);
+        }
+    }, [status]);
+
+    return <Text style={styles.deviceStatus}>Status: {statusText}</Text>;
+};
+
 const NearbyDevicesScreen = () => {
     const [devices, setDevices] = useState<Device[]>([]);
     const [loading, setLoading] = useState(false);
-    const [pairingAddress, setPairingAddress] = useState<string | null>(null);
     const [serverStatus, setServerStatus] = useState<string | null>(null);
+    const [isBroadcaster, setIsBroadcaster] = useState(false);
     const navigation = useNavigation();
 
     const requestBluetoothPermissions = async () => {
@@ -53,17 +69,98 @@ const NearbyDevicesScreen = () => {
         setLoading(true);
         try {
             await requestBluetoothPermissions();
-            const result = await BluetoothScanner.scanDevices(10000);
-            const filtered = result.filter(
-                (device: Device) =>
-                    device.name && !device.name.toLowerCase().startsWith('unknown device')
-            );
+            const result = await BluetoothScanner.scanDevices(20000);
+            const filtered: Device[] = result
+                .filter((device: Device) => device.name && !device.name.toLowerCase().startsWith('unknown device'))
+                .map((device: Device) => ({ ...device, status: 'idle' }));
             setDevices(filtered);
+            setServerStatus(null);
         } catch (error: any) {
             setServerStatus(`Scan Error: ${error.message || 'Bluetooth scan failed'}`);
         } finally {
             setLoading(false);
         }
+    };
+
+    const updateDeviceStatus = (address: string, status: Device['status']) => {
+        setDevices(prev =>
+            prev.map(dev =>
+                dev.address === address ? { ...dev, status } : dev
+            )
+        );
+    };
+
+    const handleDevicePress = async (device: Device) => {
+        updateDeviceStatus(device.address, 'pairing');
+        try {
+            await BluetoothScanner.pairDevice(device.address);
+            updateDeviceStatus(device.address, 'paired');
+        } catch (error: any) {
+            updateDeviceStatus(device.address, 'failed');
+            setServerStatus(`Pairing Error: ${error.message}`);
+        }
+    };
+
+    const handleSendData = async (device: Device) => {
+        try {
+            const payload = {
+                amount: 1200,
+                id: "212121",
+                status: "true",
+            };
+            const result = await BluetoothScanner.sendDataToDevice(
+                device.address,
+                JSON.stringify(payload)
+            );
+            setServerStatus(`Data Sent: ${result}`);
+            Alert.alert(
+                'Success',
+                `Data sent successfully to ${device.name || device.address}`,
+                [{ text: 'OK' }]
+            );
+        } catch (error: any) {
+            setServerStatus(`Send Error: ${error.message}`);
+            Alert.alert(
+                'Error',
+                `Failed to send data to ${device.name || device.address}\n${error.message}`,
+                [{ text: 'OK' }]
+            );
+        }
+    };
+
+    const renderDeviceItem = ({ item }: { item: Device }) => {
+        const isLoading = item.status === 'pairing';
+
+        return (
+            <View style={styles.deviceItem}>
+                <TouchableOpacity onPress={() => handleDevicePress(item)}>
+                    <View>
+                        <Text style={styles.deviceName}>
+                            {item.name || `Device (${item.address.slice(-5)})`}
+                        </Text>
+                        {item.status === 'paired' && (
+                            <Text style={styles.connectedMessage}>
+                                Connected to {item.name || item.address}
+                            </Text>
+                        )}
+                    </View>
+
+                    {/* Use the new DeviceStatusText component */}
+                    <DeviceStatusText status={item.status} />
+
+                    {isLoading && (
+                        <ActivityIndicator size="small" color="#1e40af" style={{ marginTop: 4 }} />
+                    )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                    style={styles.sendButton}
+                    onPress={() => handleSendData(item)}
+                >
+                    <Text style={styles.buttonText}>Send Data</Text>
+                </TouchableOpacity>
+            </View>
+        );
     };
 
     useEffect(() => {
@@ -83,69 +180,9 @@ const NearbyDevicesScreen = () => {
         assignBluetoothRole();
     }, []);
 
-    const [isBroadcaster, setIsBroadcaster] = useState(false);
-
     useEffect(() => {
-        if (isBroadcaster) {
-            scanForDevices();
-        }
-    }, [isBroadcaster]);
-
-
-    const handleDevicePress = async (device: Device) => {
-        setPairingAddress(device.address);
-        try {
-            const result = await BluetoothScanner.pairDevice(device.address);
-            setServerStatus(`Paired Successfully: ${result}`);
-        } catch (error: any) {
-            setServerStatus(`Pairing Error: ${error.message}`);
-        } finally {
-            setPairingAddress(null);
-        }
-    };
-
-    const handleSendData = async (device: Device) => {
-        try {
-            const payload = {
-                amount: 1200,
-                id: "212121",
-                status: "true",
-            };
-            const result = await BluetoothScanner.sendDataToDevice(
-                device.address,
-                JSON.stringify(payload)
-            );
-            setServerStatus(`Data Sent: ${result}`);
-        } catch (error: any) {
-            setServerStatus(`Send Error: ${error.message}`);
-        }
-    };
-
-    const renderDeviceItem = ({ item }: { item: Device }) => (
-        <View style={styles.deviceItem}>
-            <TouchableOpacity
-                onPress={() => handleDevicePress(item)}
-                disabled={pairingAddress === item.address}
-            >
-                <Text style={styles.deviceName}>
-                    {item.name === "Unknown Device"
-                        ? `Device (${item.address.slice(-5)})`
-                        : item.name}
-                </Text>
-                <Text style={styles.deviceAddress}>{item.address}</Text>
-                {pairingAddress === item.address && (
-                    <ActivityIndicator size="small" color="#1e40af" style={{ marginTop: 4 }} />
-                )}
-            </TouchableOpacity>
-
-            <TouchableOpacity
-                style={styles.sendButton}
-                onPress={() => handleSendData(item)}
-            >
-                <Text style={styles.buttonText}>Send Data</Text>
-            </TouchableOpacity>
-        </View>
-    );
+        console.log('Updated devices:', devices);
+    }, [devices]);
 
     return (
         <View style={styles.container}>
@@ -161,10 +198,11 @@ const NearbyDevicesScreen = () => {
                     contentContainerStyle={styles.listContainer}
                     ListEmptyComponent={<Text style={styles.emptyText}>No devices found</Text>}
                     ListHeaderComponent={<Text style={styles.subTitle}>Devices</Text>}
+                    extraData={devices}
                 />
             )}
             <TouchableOpacity style={styles.rescanButton} onPress={scanForDevices}>
-                <Text style={styles.buttonText}>Rescan</Text>
+                <Text style={styles.buttonText}>Scan</Text>
             </TouchableOpacity>
         </View>
     );
@@ -178,11 +216,39 @@ const styles = StyleSheet.create({
     subTitle: { fontSize: 18, fontWeight: '500', marginVertical: 8 },
     serverStatus: { fontSize: 14, color: '#1e40af', marginBottom: 8 },
     listContainer: { paddingBottom: 20 },
-    deviceItem: { padding: 12, marginBottom: 10, backgroundColor: '#fff', borderRadius: 10, elevation: 2 },
-    deviceName: { fontSize: 16, fontWeight: '500' },
-    deviceAddress: { fontSize: 14, color: '#555', marginTop: 4 },
-    sendButton: { backgroundColor: '#10b981', padding: 10, borderRadius: 8, marginTop: 10, alignItems: 'center' },
-    rescanButton: { backgroundColor: '#1e40af', padding: 12, borderRadius: 8, marginTop: 20, alignItems: 'center' },
+    deviceItem: {
+        padding: 12,
+        marginBottom: 10,
+        backgroundColor: '#fff',
+        borderRadius: 10,
+        elevation: 2
+    },
+    deviceName: {
+        fontSize: 16,
+        fontWeight: '500'
+    },
+    connectedMessage: {
+        fontSize: 13,
+        color: '#b91c1c',
+        marginTop: 2,
+        fontWeight: 'bold',
+        fontStyle: 'normal',
+    },
+    deviceStatus: { fontSize: 13, color: '#1e3a8a', marginTop: 4 },
+    sendButton: {
+        backgroundColor: '#10b981',
+        padding: 10,
+        borderRadius: 8,
+        marginTop: 10,
+        alignItems: 'center'
+    },
+    rescanButton: {
+        backgroundColor: '#1e40af',
+        padding: 12,
+        borderRadius: 8,
+        marginTop: 20,
+        alignItems: 'center'
+    },
     buttonText: { color: '#fff', fontSize: 16 },
     emptyText: { textAlign: 'center', color: '#888', marginTop: 10 },
 });
