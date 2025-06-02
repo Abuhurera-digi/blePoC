@@ -20,6 +20,7 @@ class MainApplication : Application(), ReactApplication {
     PackageList(this).packages.apply {
         add(BluetoothNamePackage()) // 👈 Add this line
         add(BluetoothScannerPackage())
+        add(UltrasonicPackage())
         
     }
 
