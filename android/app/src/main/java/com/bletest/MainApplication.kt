@@ -11,6 +11,9 @@ import com.facebook.react.defaults.DefaultReactHost.getDefaultReactHost
 import com.facebook.react.defaults.DefaultReactNativeHost
 import com.facebook.react.soloader.OpenSourceMergedSoMapping
 import com.facebook.soloader.SoLoader
+import com.bletest.NfcReaderPackage
+import com.bletest.HceMessagePackage
+import com.bletest.NfcSenderPackage
 
 class MainApplication : Application(), ReactApplication {
 
@@ -21,6 +24,11 @@ class MainApplication : Application(), ReactApplication {
         add(BluetoothNamePackage()) // 👈 Add this line
         add(BluetoothScannerPackage())
         add(UltrasonicPackage())
+        add(NfcReaderPackage())
+        add(HceMessagePackage())
+        add(NfcSenderPackage())
+
+
         
     }
 

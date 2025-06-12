@@ -21,6 +21,7 @@ import Bluetooth from './Bluetooth';
 import NearbyDevicesScreen from './NearbyDevicesScreen';
 import RecevingDataFromSender from './RecevingDataFromSender';
 import Ultrasonic from './Ultrasonic';
+import Nfcscreen from './Nfcscreen';
 
 const Stack = createNativeStackNavigator();
 enableScreens(); // Add this line at the top
@@ -137,6 +138,12 @@ const HomeScreen = ({ navigation }: any) => {
       >
         <Text style={styles.scanButtonText}>ultrasonic</Text>
       </TouchableOpacity>
+      <TouchableOpacity
+        style={styles.scanButton}
+        onPress={() => navigation.navigate('Nfcscreen')}
+      >
+        <Text style={styles.scanButtonText}>Nfcscreen</Text>
+      </TouchableOpacity>
 
     </SafeAreaView>
   );
@@ -151,6 +158,7 @@ const App = () => (
       <Stack.Screen name="NearbyDevices" component={NearbyDevicesScreen} />
       <Stack.Screen name='reciveData' component={RecevingDataFromSender} />
       <Stack.Screen name='ultra' component={Ultrasonic} />
+      <Stack.Screen name='Nfcscreen' component={Nfcscreen} />
     </Stack.Navigator>
   </NavigationContainer>
 );
